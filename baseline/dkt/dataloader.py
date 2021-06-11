@@ -12,11 +12,10 @@ from .features import *
 
 
 class Preprocess:
-    def __init__(self,args):
+    def __init__(self, args):
         self.args = args
         self.train_data = None
         self.test_data = None
-        
 
     def get_train_data(self):
         return self.train_data
@@ -29,10 +28,10 @@ class Preprocess:
         split data into two parts with a given ratio.
         """
         if shuffle:
-            random.seed(seed) # fix to default seed 0
+            random.seed(seed)  # fix to default seed 0
             random.shuffle(data)
 
-        size = int(len(data) * (1-test_size))
+        size = int(len(data) * (1 - test_size))
         data_1 = data[:size]
         data_2 = data[size:]
 
@@ -55,36 +54,35 @@ class Preprocess:
 
         if not os.path.exists(self.args.asset_dir):
             os.makedirs(self.args.asset_dir)
-            
+
         for col in cate_cols:
             le = LabelEncoder()
             if is_train:
-                #For UNKNOWN class
+                # For UNKNOWN class
                 a = df[col].unique().tolist() + ['unknown']
                 le.fit(a)
                 self.__save_labels(le, col)
             else:
-                label_path = os.path.join(self.args.asset_dir, col+'_classes.npy')
+                label_path = os.path.join(self.args.asset_dir, col + '_classes.npy')
                 le.classes_ = np.load(label_path)
-                
+
                 df[col] = df[col].apply(lambda x: x if x in le.classes_ else 'unknown')
 
-            #모든 컬럼이 범주형이라고 가정
+            # 모든 컬럼이 범주형이라고 가정
             df[col] = df[col].astype(str)
             test = le.transform(df[col])
             df[col] = test
-            
 
         # def convert_time(s):
         #     timestamp = time.mktime(datetime.strptime(s, '%Y-%m-%d %H:%M:%S').timetuple())
         #     return int(timestamp)
         #
         # df['time_stamp'] = df['Timestamp'].apply(convert_time)
-        
+
         return df
 
     def __feature_engineering(self, df):
-        df = df.sort_values(by=['userID','Timestamp'], axis=0)
+        df = df.sort_values(by=['userID', 'Timestamp'], axis=0)
         # feature 생성을 하지 않은 경우
         df = create_time_stamp(df)
         df = create_day(df)
@@ -94,7 +92,7 @@ class Preprocess:
 
         # 사용할 colums 선택
         use_features = ['userID',
-                        'answerCode', # 이 순서 유지
+                        'answerCode',  # 이 순서 유지
                         'assessmentItemID',
                         'testId',
                         'KnowledgeTag',
@@ -118,9 +116,7 @@ class Preprocess:
         self.args.n_test = len(np.load(os.path.join(self.args.asset_dir, 'testId_classes.npy')))
         self.args.n_tag = len(np.load(os.path.join(self.args.asset_dir, 'KnowledgeTag_classes.npy')))
 
-
-
-        #df = df.sort_values(by=['userID','Timestamp'], axis=0)
+        # df = df.sort_values(by=['userID','Timestamp'], axis=0)
         # columns = ['userID', 'assessmentItemID', 'testId', 'answerCode', 'KnowledgeTag']
         # group = df[columns].groupby('userID').apply(
         #         lambda r: (
@@ -140,7 +136,7 @@ class Preprocess:
         self.train_data = self.load_data_from_file(file_name)
 
     def load_test_data(self, file_name):
-        self.test_data = self.load_data_from_file(file_name, is_train= False)
+        self.test_data = self.load_data_from_file(file_name, is_train=False)
 
 
 class DKTDataset(torch.utils.data.Dataset):
@@ -195,13 +191,13 @@ class DKTDataset(torch.utils.data.Dataset):
 
 from torch.nn.utils.rnn import pad_sequence
 
+
 def collate(batch):
     col_n = len(batch[0])
     col_list = [[] for _ in range(col_n)]
     # is_cont=True이면 DKTDataset의 output을 cont+cate로 해야 그대로 mask가 맨 마지막에 위치함
     max_seq_len = len(batch[0][-1])  # args.max_seq_len
 
-        
     # batch의 값들을 각 column끼리 그룹화
     for row in batch:
         for i, col in enumerate(row):
@@ -209,10 +205,9 @@ def collate(batch):
             pre_padded[-len(col):] = col  # 앞부분이 0으로 padding됨
             col_list[i].append(pre_padded)
 
-
     for i, _ in enumerate(col_list):
-        col_list[i] =torch.stack(col_list[i])
-    
+        col_list[i] = torch.stack(col_list[i])
+
     return tuple(col_list)
 
 
@@ -221,15 +216,17 @@ def get_loaders(args, train, valid):
 
     pin_memory = True
     train_loader, valid_loader = None, None
-    
+
     if train is not None:
         trainset = DKTDataset(train, args)
         train_loader = torch.utils.data.DataLoader(trainset, num_workers=args.num_workers, shuffle=True,
-                            batch_size=args.batch_size, pin_memory=pin_memory, collate_fn=collate)
+                                                   batch_size=args.batch_size, pin_memory=pin_memory,
+                                                   collate_fn=collate)
     if valid is not None:
         valset = DKTDataset(valid, args)
         valid_loader = torch.utils.data.DataLoader(valset, num_workers=args.num_workers, shuffle=False,
-                            batch_size=args.batch_size, pin_memory=pin_memory, collate_fn=collate)
+                                                   batch_size=args.batch_size, pin_memory=pin_memory,
+                                                   collate_fn=collate)
 
     return train_loader, valid_loader
 

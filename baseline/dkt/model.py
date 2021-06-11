@@ -1,16 +1,14 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F 
+import torch.nn.functional as F
 import numpy as np
 import copy
 import math
 
 try:
-    from transformers.modeling_bert import BertConfig, BertEncoder, BertModel    
+    from transformers.modeling_bert import BertConfig, BertEncoder, BertModel
 except:
-    from transformers.models.bert.modeling_bert import BertConfig, BertEncoder, BertModel    
-
-
+    from transformers.models.bert.modeling_bert import BertConfig, BertEncoder, BertModel
 
 
 class LSTM(nn.Module):
@@ -26,12 +24,12 @@ class LSTM(nn.Module):
 
         self.cont_count = args.cont_count
 
-        # Embedding 
+        # Embedding
         # interaction은 현재 correct로 구성되어있다. correct(1, 2) + padding(0)
-        self.embedding_interaction = nn.Embedding(3, self.hidden_dim//3)
-        self.embedding_test = nn.Embedding(self.args.n_test + 1, self.hidden_dim//3)
-        self.embedding_question = nn.Embedding(self.args.n_questions + 1, self.hidden_dim//3)
-        self.embedding_tag = nn.Embedding(self.args.n_tag + 1, self.hidden_dim//3)
+        self.embedding_interaction = nn.Embedding(3, self.hidden_dim // 3)
+        self.embedding_test = nn.Embedding(self.args.n_test + 1, self.hidden_dim // 3)
+        self.embedding_question = nn.Embedding(self.args.n_questions + 1, self.hidden_dim // 3)
+        self.embedding_tag = nn.Embedding(self.args.n_tag + 1, self.hidden_dim // 3)
 
         # embedding cate projection
         self.cate_proj = nn.Sequential(
@@ -49,9 +47,9 @@ class LSTM(nn.Module):
 
         self.lstm = nn.LSTM(self.hidden_dim,  # input_size
                             self.hidden_dim,  # hidden_size
-                            self.n_layers,    # num_layers
+                            self.n_layers,  # num_layers
                             batch_first=True)
-        
+
         # Fully connected layer
         self.fc = nn.Linear(self.hidden_dim, 1)
 
@@ -115,6 +113,7 @@ class LSTM(nn.Module):
         preds = self.activation(out).view(batch_size, -1)
 
         return preds
+
 
 ############################################################################
 class LSTMATTN(nn.Module):
@@ -221,7 +220,6 @@ class LSTMATTN(nn.Module):
             comb_embed = torch.cat([cate_embed, cont_embed], 2)
             X = self.comb_proj(comb_embed)
 
-
         hidden = self.init_hidden(batch_size)
         out, hidden = self.lstm(X, hidden)
         out = out.contiguous().view(batch_size, -1, self.hidden_dim)
@@ -240,6 +238,7 @@ class LSTMATTN(nn.Module):
         preds = self.activation(out).view(batch_size, -1)
 
         return preds
+
 
 ############################################################################
 class Bert(nn.Module):
@@ -335,6 +334,7 @@ class Bert(nn.Module):
         preds = self.activation(out).view(batch_size, -1)
 
         return preds
+
 
 ############################################################################
 class PositionalEncoding(nn.Module):
@@ -589,7 +589,7 @@ class LastQuery(nn.Module):
         batch_size = interaction.size(0)
         seq_len = interaction.size(1)
 
-        # 신나는 embedding
+        # embedding
         embed_interaction = self.embedding_interaction(interaction)
         embed_test = self.embedding_test(test)
         embed_question = self.embedding_question(question)
@@ -639,6 +639,6 @@ class LastQuery(nn.Module):
 
         preds = self.activation(out).view(batch_size, -1)
 
-        #print(preds)
+        # print(preds)
 
         return preds
