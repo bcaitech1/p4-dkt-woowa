@@ -2,7 +2,7 @@ import os
 import torch
 import numpy as np
 
-from .dataloader import get_loaders
+from .dataloader import get_loaders, data_augmentation
 from .optimizer import get_optimizer
 from .scheduler import get_scheduler
 from .criterion import get_criterion
@@ -25,7 +25,15 @@ def get_lr(optimizer):
 
 def run(args, train_data, valid_data):
     print(f'<< run: {args.is_cont} >>')
-    train_loader, valid_loader = get_loaders(args, train_data, valid_data)
+    if args.window:
+        # augmentation
+        augmented_train_data = data_augmentation(train_data, args)
+        if len(augmented_train_data) != len(train_data):
+            print(f"Data Augmentation applied. Train data {len(train_data)} -> {len(augmented_train_data)}\n")
+
+        train_loader, valid_loader = get_loaders(args, augmented_train_data, valid_data)
+    else:
+        train_loader, valid_loader = get_loaders(args, train_data, valid_data)
 
     # only when using warmup scheduler
     args.total_steps = int(len(train_loader.dataset) / args.batch_size) * (args.n_epochs)

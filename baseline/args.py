@@ -5,7 +5,6 @@ import argparse
 def parse_args(mode='train'):
     parser = argparse.ArgumentParser()
 
-
     parser.add_argument('--seed', default=42, type=int, help='seed')
 
     parser.add_argument('--device', default='cpu', type=str, help='cpu or gpu')
@@ -45,9 +44,15 @@ def parse_args(mode='train'):
 
     ## custom
     parser.add_argument('--run_name', default='test', type=str, help='wandb run name')
-    parser.add_argument('--test_size', default=0.1, type=float, help='test size')
+    parser.add_argument('--test_size', default=0.1, type=float, help='test_size')
     parser.add_argument('--is_cont', default=True, type=bool, help='use continuous feature')
-    parser.add_argument('--cont_count', default=3, type=int, help='# of continuous feature columns')
+    parser.add_argument('--cont_count', default=3, type=int, help='continuous feature count')
+
+    # Data Augmentation
+    parser.add_argument('--window', default=True, type=bool, help='window')
+    parser.add_argument('--stride', default=10, type=int, help='stride size')
+    parser.add_argument('--shuffle', default=False, type=bool, help='shuffle')
+    parser.add_argument('--shuffle_n', default=2, type=int, help='shuffle_n')
 
     args = parser.parse_args()
 
