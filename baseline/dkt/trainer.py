@@ -14,7 +14,7 @@ import time
 import datetime
 import gc
 
-
+from dkt.feature_selection import *
 
 
 # Get current learning rate
@@ -150,7 +150,7 @@ def run(args, train_data, valid_data):
                 'epoch': epoch + 1,
                 'state_dict': model_to_save.state_dict(),
             },
-                args.model_dir, 'model.pt',
+                args.model_dir, f'{args.model}_{epoch+1}_{int(acc*10000)}.pt',  # acc가 저장 이름에 포함되도록
             )
             early_stopping_counter = 0
         else:
@@ -176,7 +176,7 @@ def train(train_loader, model, optimizer, args):
     for step, batch in enumerate(train_loader):
         input = process_batch(batch, args)
         preds = model(input)
-        targets = input[3]  # correct
+        targets = input[0]  # correct
 
         loss = compute_loss(preds, targets)
         update_params(loss, model, optimizer, args)
@@ -218,7 +218,7 @@ def validate(valid_loader, model, args):
     for step, batch in enumerate(valid_loader):
         input = process_batch(batch, args)
         preds = model(input)
-        targets = input[3]  # correct
+        targets = input[0]  # correct
 
         # predictions
         preds = preds[:, -1]
@@ -283,7 +283,6 @@ def get_model(args):
     """
     Load model and move tensors to a given devices.
     """
-    cont_count = 3
     if args.model == 'lstm': model = LSTM(args)
     if args.model == 'lstmattn': model = LSTMATTN(args)
     if args.model == 'bert': model = Bert(args)
@@ -299,11 +298,12 @@ def get_model(args):
 def process_batch(batch, args):
     # print(f"<< process_batch : {args.is_cont} >>")
     # 범주형 피처 컬럼 5개
-    test, question, tag, correct, mask = batch[-5:]  # [batch_size(64), max_seq_len(20)]
+    categorical_features = list(batch[-(len(DEFAULT) + len(CATEGORICAL)):])
 
     # change to float
-    mask = mask.type(torch.FloatTensor)
-    correct = correct.type(torch.FloatTensor)
+    mask = categorical_features[-1].type(torch.FloatTensor)  # categorical 중 마지막
+    correct = categorical_features[0].type(torch.FloatTensor)  # categorical 중 처음
+
 
     # interaction: 과거 정답 여부를 다음 시퀀스에 추가적인 feature로 사용하게끔 한칸 시프트 해준 feature
     #  interaction을 임시적으로 correct를 한칸 우측으로 이동한 것으로 사용
@@ -315,36 +315,28 @@ def process_batch(batch, args):
     interaction = (interaction * interaction_mask).to(torch.int64)  # 가장 마지막으로 푼 문제를 제외하고 정답 2, 오답 1
     # print(interaction)
     # exit()
-    #  test_id, question_id, tag
-    test = ((test + 1) * mask).to(torch.int64)
-    question = ((question + 1) * mask).to(torch.int64)
-    tag = ((tag + 1) * mask).to(torch.int64)
+
+    for i in range(1, len(categorical_features) - 1, 1):  # 0번째인 correct, 마지막인 mask는 제외
+        categorical_features[i] = ((categorical_features[i] + 1) * mask).to(torch.int64)
 
     if args.is_cont:
-        cont = batch[:-5]
+        cont = batch[:-len(categorical_features)]  # 수정
         # cont features도 padding을 위해 1을 더함
         for i in range(len(cont)):
             cont[i] = ((cont[i] + 1) * mask).to(torch.float32)
 
     # device memory로 이동
-    test = test.to(args.device)
-    question = question.to(args.device)
-    tag = tag.to(args.device)
-    correct = correct.to(args.device)
-    mask = mask.to(args.device)
-    interaction = interaction.to(args.device)
+    categorical_features = [correct.to(args.device)] + [_.to(args.device) for _ in categorical_features[1:-1]] + \
+                           [mask.to(args.device), interaction.to(args.device)]
 
     if args.is_cont:
         for i in range(len(cont)):
             cont[i] = cont[i].to(args.device)
 
-        return (test, question,
-                tag, correct, mask,
-                interaction, cont)
+        categorical_features.append(cont)
+        return tuple(categorical_features)
 
-    return (test, question,
-            tag, correct, mask,
-            interaction)
+    return tuple(categorical_features)
 
 
 # loss계산하고 parameter update!
@@ -371,9 +363,11 @@ def update_params(loss, model, optimizer, args):
 
 def save_checkpoint(state, model_dir, model_filename):
     print('saving model ...')
+    print(f'{os.path.join(model_dir, model_filename)}')
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     torch.save(state, os.path.join(model_dir, model_filename))
+
 
 
 def load_model(args):

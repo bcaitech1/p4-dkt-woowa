@@ -5,6 +5,8 @@ import numpy as np
 import copy
 import math
 
+from dkt.feature_selection import *
+
 try:
     from transformers.modeling_bert import BertConfig, BertEncoder, BertModel
 except:
@@ -22,7 +24,9 @@ class LSTM(nn.Module):
         self.hidden_dim = self.args.hidden_dim
         self.n_layers = self.args.n_layers
 
-        self.cont_count = args.cont_count
+        #self.cont_count = args.cont_count
+        self.cont_count = len(CONTINUOUS)
+        self.cate_count = len(DEFAULT) + len(CATEGORICAL)
 
         # Embedding
         # interaction은 현재 correct로 구성되어있다. correct(1, 2) + padding(0)
@@ -31,9 +35,16 @@ class LSTM(nn.Module):
         self.embedding_question = nn.Embedding(self.args.n_questions + 1, self.hidden_dim // 3)
         self.embedding_tag = nn.Embedding(self.args.n_tag + 1, self.hidden_dim // 3)
 
+        if 'testPre' in CATEGORICAL:
+            self.embedding_testpre = nn.Embedding(self.args.n_testpre + 1, self.hidden_dim // 3)
+        if 'testPost' in CATEGORICAL:
+            self.embedding_testpost = nn.Embedding(self.args.n_testpost + 1, self.hidden_dim // 3)
+
         # embedding cate projection
+        n_categorical = len(DEFAULT) + len(CATEGORICAL)
         self.cate_proj = nn.Sequential(
-            nn.Linear((self.hidden_dim // 3) * 4, self.hidden_dim),
+            nn.Linear((self.hidden_dim // 3) * (n_categorical - 1), self.hidden_dim),
+            # 1 빼는 이유: categorical에서 userID는 제외대상
             nn.LayerNorm(self.hidden_dim)
         )
         # cont embedding
@@ -71,31 +82,57 @@ class LSTM(nn.Module):
         return (h, c)
 
     def forward(self, input):
-        if self.args.is_cont:
-            test, question, tag, _, mask, interaction, cont = input
-        else:
-            test, question, tag, _, mask, interaction = input
-
-        batch_size = interaction.size(0)
-        seq_len = interaction.size(1)
+        # 변경된 categorical의 순서: answerCode, assessmentItemID, testId, KnowledgeTag, (testPre, testPost), mask, interaction
+        batch_size = input[0].size(0)
+        seq_len = input[0].size(1)
 
         # Embedding
+        embed_interaction = self.embedding_interaction(input[self.cate_count])
+        embed_question = self.embedding_question(input[1])
+        embed_test = self.embedding_test(input[2])
+        embed_tag = self.embedding_tag(input[3])
 
-        embed_interaction = self.embedding_interaction(interaction)
-        embed_test = self.embedding_test(test)
-        embed_question = self.embedding_question(question)
-        embed_tag = self.embedding_tag(tag)
+        if len(CATEGORICAL) == 2:  # pre, post
+            embed_testpre = self.embedding_testpre(input[4])
+            embed_testpost = self.embedding_testpost(input[5])
+            cate_embed = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag,
+                                    embed_testpre,
+                                    embed_testpost], 2
+                                   )
+        elif len(CATEGORICAL) == 1:
+            if 'testPre' in CATEGORICAL:  # pre
+                embed_testpre = self.embedding_testpre(input[4])
+                cate_embed = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_testpre], 2
+                                       )
+            else:  # post
+                embed_testpost = self.embedding_testpost(input[4])
+                cate_embed = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_testpost], 2
+                                       )
 
-        cate_embed = torch.cat([embed_interaction,
-                                embed_test,
-                                embed_question,
-                                embed_tag, ], 2
-                               )
+        else:  # none
+            cate_embed = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag, ], 2
+                                   )
+
         cate_embed = self.cate_proj(cate_embed)
         X = cate_embed
 
         if self.args.is_cont:
-            cont_x = torch.cat(cont, 1)
+            #cont_x = torch.cat(cont, 1)
+            cont_x = torch.cat(input[-1], 1)  # 수정
             cont_bn_x = self.cont_bn(cont_x.view(-1, self.cont_count))
             # view 할 때 맨 앞을 -1로 해야함,
             # 맨 마지막 batch는 실제 batch보다 작아서 고정된 값으로 놓으면 에러남
@@ -123,12 +160,14 @@ class LSTMATTN(nn.Module):
         print(f'<< LSTMATTN: {args.is_cont} >>')
         self.args = args
         self.device = args.device
-        self.cont_count = args.cont_count
 
         self.hidden_dim = self.args.hidden_dim
         self.n_layers = self.args.n_layers
         self.n_heads = self.args.n_heads
         self.drop_out = self.args.drop_out
+
+        self.cont_count = len(CONTINUOUS)
+        self.cate_count = len(DEFAULT) + len(CATEGORICAL)
 
         # Embedding
         # interaction은 현재 correct로 구성되어있다. correct(1, 2) + padding(0)
@@ -136,9 +175,17 @@ class LSTMATTN(nn.Module):
         self.embedding_test = nn.Embedding(self.args.n_test + 1, self.hidden_dim // 3)
         self.embedding_question = nn.Embedding(self.args.n_questions + 1, self.hidden_dim // 3)
         self.embedding_tag = nn.Embedding(self.args.n_tag + 1, self.hidden_dim // 3)
+
+        if 'testPre' in CATEGORICAL:
+            self.embedding_testpre = nn.Embedding(self.args.n_testpre + 1, self.hidden_dim // 3)
+        if 'testPost' in CATEGORICAL:
+            self.embedding_testpost = nn.Embedding(self.args.n_testpost + 1, self.hidden_dim // 3)
+
         # embedding cate projection
+        n_categorical = len(DEFAULT) + len(CATEGORICAL)
         self.cate_proj = nn.Sequential(
-            nn.Linear((self.hidden_dim // 3) * 4, self.hidden_dim),
+            nn.Linear((self.hidden_dim // 3) * (n_categorical - 1), self.hidden_dim),
+            # 1 빼는 이유: categorical에서 userID는 제외대상
             nn.LayerNorm(self.hidden_dim)
         )
 
@@ -189,31 +236,59 @@ class LSTMATTN(nn.Module):
         return (h, c)
 
     def forward(self, input):
-        if self.args.is_cont:
-            test, question, tag, _, mask, interaction, cont = input
-        else:
-            test, question, tag, _, mask, interaction = input
-
-        batch_size = interaction.size(0)
-        seq_len = interaction.size(1)
+        # 변경된 categorical의 순서: answerCode, assessmentItemID, testId, KnowledgeTag, (testPre, testPost), mask, interaction
+        batch_size = input[0].size(0)
+        seq_len = input[0].size(1)
 
         # Embedding
+        embed_interaction = self.embedding_interaction(input[self.cate_count])
+        embed_question = self.embedding_question(input[1])
+        embed_test = self.embedding_test(input[2])
+        embed_tag = self.embedding_tag(input[3])
+        if len(CATEGORICAL) == 2: # pre, post
+            embed_testpre = self.embedding_testpre(input[4])
+            embed_testpost = self.embedding_testpost(input[5])
+            cate_embed = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag,
+                                    embed_testpre,
+                                    embed_testpost], 2
+                                )
+        elif len(CATEGORICAL) == 1:
+            if 'testPre' in CATEGORICAL: # pre
+                embed_testpre = self.embedding_testpre(input[4])
+                cate_embed = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_testpre], 2
+                                    )
+            else: # post
+                embed_testpost = self.embedding_testpost(input[4])
+                cate_embed = torch.cat([embed_interaction,
+                        embed_test,
+                        embed_question,
+                        embed_tag,
+                        embed_testpost], 2
+                    )
 
-        embed_interaction = self.embedding_interaction(interaction)
-        embed_test = self.embedding_test(test)
-        embed_question = self.embedding_question(question)
-        embed_tag = self.embedding_tag(tag)
+        else: # none
+            cate_embed = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag, ], 2
+                                )
 
-        cate_embed = torch.cat([embed_interaction,
-                                embed_test,
-                                embed_question,
-                                embed_tag, ], 2)
+
         cate_embed = self.cate_proj(cate_embed)
         X = cate_embed
 
         if self.args.is_cont:
-            cont_x = torch.cat(cont, 1)
+            cont_x = torch.cat(input[-1], 1)  # 수정
             cont_bn_x = self.cont_bn(cont_x.view(-1, self.cont_count))
+            # view 할 때 맨 앞을 -1로 해야함,
+            # 맨 마지막 batch는 실제 batch보다 작아서 고정된 값으로 놓으면 에러남
             cont_bn_x = cont_bn_x.view(-1, seq_len, self.cont_count)
             cont_embed = self.cont_proj(cont_bn_x)
 
@@ -224,7 +299,7 @@ class LSTMATTN(nn.Module):
         out, hidden = self.lstm(X, hidden)
         out = out.contiguous().view(batch_size, -1, self.hidden_dim)
 
-        extended_attention_mask = mask.unsqueeze(1).unsqueeze(2)
+        extended_attention_mask = input[self.cate_count-1].unsqueeze(1).unsqueeze(2)  # mask: input[self.cate_count-1]
         extended_attention_mask = extended_attention_mask.to(dtype=torch.float32)
         # masking이 된 부분에 attention이 씌워지면 아주 낮은 값을 통해 패널티를 줘서
         extended_attention_mask = (1.0 - extended_attention_mask) * -10000.0
@@ -248,11 +323,13 @@ class Bert(nn.Module):
         print(f'<< BERT: {args.is_cont} >>')
         self.args = args
         self.device = args.device
-        self.cont_count = args.cont_count
 
         # Defining some parameters
         self.hidden_dim = self.args.hidden_dim
         self.n_layers = self.args.n_layers
+
+        self.cont_count = len(CONTINUOUS)
+        self.cate_count = len(DEFAULT) + len(CATEGORICAL)
 
         # Embedding
         # interaction은 현재 correct으로 구성되어있다. correct(1, 2) + padding(0)
@@ -261,8 +338,15 @@ class Bert(nn.Module):
         self.embedding_question = nn.Embedding(self.args.n_questions + 1, self.hidden_dim // 3)
         self.embedding_tag = nn.Embedding(self.args.n_tag + 1, self.hidden_dim // 3)
 
+        if 'testPre' in CATEGORICAL:
+            self.embedding_testpre = nn.Embedding(self.args.n_testpre + 1, self.hidden_dim // 3)
+        if 'testPost' in CATEGORICAL:
+            self.embedding_testpost = nn.Embedding(self.args.n_testpost + 1, self.hidden_dim // 3)
+
+        n_categorical = len(DEFAULT) + len(CATEGORICAL)
         self.cate_proj = nn.Sequential(
-            nn.Linear((self.hidden_dim // 3) * 4, self.hidden_dim),
+            nn.Linear((self.hidden_dim // 3) * (n_categorical - 1), self.hidden_dim),
+            # 1 빼는 이유: categorical에서 userID는 제외대상
             nn.LayerNorm(self.hidden_dim)
         )
 
@@ -295,31 +379,63 @@ class Bert(nn.Module):
         self.activation = nn.Sigmoid()
 
     def forward(self, input):
-        if self.args.is_cont:
-            test, question, tag, _, mask, interaction, cont = input
-        else:
-            test, question, tag, _, mask, interaction = input
+        # 변경된 categorical의 순서: answerCode, assessmentItemID, testId, KnowledgeTag, (testPre, testPost), mask, interaction
 
-        batch_size = interaction.size(0)
-        seq_len = interaction.size(1)
+        batch_size = input[0].size(0)
+        seq_len = input[0].size(1)
+        mask = input[self.cate_count-1]
+
 
         # Embedding
-        embed_interaction = self.embedding_interaction(interaction)
-        embed_test = self.embedding_test(test)
-        embed_question = self.embedding_question(question)
-        embed_tag = self.embedding_tag(tag)
+        embed_interaction = self.embedding_interaction(input[self.cate_count])
+        embed_question = self.embedding_question(input[1])
+        embed_test = self.embedding_test(input[2])
+        embed_tag = self.embedding_tag(input[3])
 
-        cate_embed = torch.cat([embed_interaction,
-                                embed_test,
-                                embed_question,
-                                embed_tag, ], 2
-                               )
+        if len(CATEGORICAL) == 2:  # pre, post
+            embed_testpre = self.embedding_testpre(input[4])
+            embed_testpost = self.embedding_testpost(input[5])
+            cate_embed = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag,
+                                    embed_testpre,
+                                    embed_testpost], 2
+                                   )
+        elif len(CATEGORICAL) == 1:
+            if 'testPre' in CATEGORICAL:  # pre
+                embed_testpre = self.embedding_testpre(input[4])
+                cate_embed = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_testpre], 2
+                                       )
+            else:  # post
+                embed_testpost = self.embedding_testpost(input[4])
+                cate_embed = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_testpost], 2
+                                       )
+
+        else:  # none
+            cate_embed = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag, ], 2
+                                   )
+
         cate_embed = self.cate_proj(cate_embed)
         X = cate_embed
 
         if self.args.is_cont:
-            cont_x = torch.cat(cont, 1)
+            # cont_x = torch.cat(cont, 1)
+            cont_x = torch.cat(input[-1], 1)  # 수정
             cont_bn_x = self.cont_bn(cont_x.view(-1, self.cont_count))
+            # view 할 때 맨 앞을 -1로 해야함,
+            # 맨 마지막 batch는 실제 batch보다 작아서 고정된 값으로 놓으면 에러남
             cont_bn_x = cont_bn_x.view(-1, seq_len, self.cont_count)
             cont_embed = self.cont_proj(cont_bn_x)
 
@@ -365,7 +481,8 @@ class Saint(nn.Module):
         self.args = args
         self.device = args.device
 
-        self.cont_count = args.cont_count
+        self.cont_count = len(CONTINUOUS)
+        self.cate_count = len(DEFAULT) + len(CATEGORICAL)
 
         self.hidden_dim = self.args.hidden_dim
         # self.dropout = self.args.dropout
@@ -387,8 +504,15 @@ class Saint(nn.Module):
         # interaction은 현재 correct으로 구성되어있다. correct(1, 2) + padding(0)
         # cate feature embedding
         self.embedding_interaction = nn.Embedding(3, self.hidden_dim // 3)
+        if 'testPre' in CATEGORICAL:
+            self.embedding_testpre = nn.Embedding(self.args.n_testpre + 1, self.hidden_dim // 3)
+        if 'testPost' in CATEGORICAL:
+            self.embedding_testpost = nn.Embedding(self.args.n_testpost + 1, self.hidden_dim // 3)
+
+        n_categorical = len(DEFAULT) + len(CATEGORICAL)
         self.dec_cate_proj = nn.Sequential(
-            nn.Linear((self.hidden_dim // 3) * 4, self.hidden_dim),
+            nn.Linear((self.hidden_dim // 3) * (n_categorical - 1), self.hidden_dim),
+            # 1 빼는 이유: categorical에서 userID는 제외대상
             nn.LayerNorm(self.hidden_dim)
         )
 
@@ -427,19 +551,16 @@ class Saint(nn.Module):
         return mask.masked_fill(mask == 1, float('-inf'))
 
     def forward(self, input):
-        if self.args.is_cont:
-            test, question, tag, _, mask, interaction, cont = input
-        else:
-            test, question, tag, _, mask, interaction = input
+        # 변경된 categorical의 순서: answerCode, assessmentItemID, testId, KnowledgeTag, (testPre, testPost), mask, interaction
 
-        batch_size = interaction.size(0)
-        seq_len = interaction.size(1)
+        batch_size = input[0].size(0)
+        seq_len = input[0].size(1)
 
         # Embedding
         # ENCODER
-        embed_test = self.embedding_test(test)
-        embed_question = self.embedding_question(question)
-        embed_tag = self.embedding_tag(tag)
+        embed_question = self.embedding_question(input[1])
+        embed_test = self.embedding_test(input[2])
+        embed_tag = self.embedding_tag(input[3])
 
         embed_enc = torch.cat([embed_test,
                                embed_question,
@@ -448,21 +569,51 @@ class Saint(nn.Module):
         embed_enc = self.enc_comb_proj(embed_enc)
 
         # DECODER
-        embed_test = self.embedding_test(test)
-        embed_question = self.embedding_question(question)
-        embed_tag = self.embedding_tag(tag)
+        embed_question = self.embedding_question(input[1])
+        embed_test = self.embedding_test(input[2])
+        embed_tag = self.embedding_tag(input[3])
+        embed_interaction = self.embedding_interaction(input[self.cate_count])
 
-        embed_interaction = self.embedding_interaction(interaction)
-
-        cate_embed_dec = torch.cat([embed_test,
+        if len(CATEGORICAL) == 2: # pre, post
+            embed_testpre = self.embedding_testpre(input[4])
+            embed_testpost = self.embedding_testpost(input[5])
+            cate_embed_dec = torch.cat([embed_interaction,
+                                    embed_test,
                                     embed_question,
                                     embed_tag,
-                                    embed_interaction], 2)
+                                    embed_testpre,
+                                    embed_testpost], 2
+                                )
+        elif len(CATEGORICAL) == 1:
+            if 'testPre' in CATEGORICAL: # pre
+                embed_testpre = self.embedding_testpre(input[4])
+                cate_embed_dec = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_testpre], 2
+                                    )
+            else: # post
+                embed_testpost = self.embedding_testpost(input[4])
+                cate_embed_dec = torch.cat([embed_interaction,
+                        embed_test,
+                        embed_question,
+                        embed_tag,
+                        embed_testpost], 2
+                    )
+
+        else: # none
+            cate_embed_dec = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag, ], 2
+                                )
+
         cate_embed_dec = self.dec_cate_proj(cate_embed_dec)
         embed_dec = cate_embed_dec
 
         if self.args.is_cont:
-            cont_x = torch.cat(cont, 1)
+            cont_x = torch.cat(input[-1], 1)  #cont: input[-1]
             cont_bn_x = self.cont_bn(cont_x.view(-1, self.cont_count))
             cont_bn_x = cont_bn_x.view(-1, seq_len, self.cont_count)
             cont_embed_dec = self.dec_cont_proj(cont_bn_x)
@@ -526,19 +677,26 @@ class LastQuery(nn.Module):
 
         self.hidden_dim = self.args.hidden_dim
 
+        self.cont_count = len(CONTINUOUS)
+        self.cate_count = len(DEFAULT) + len(CATEGORICAL)
+
         # Embedding
         # interaction은 현재 correct으로 구성되어있다. correct(1, 2) + padding(0)
         self.embedding_interaction = nn.Embedding(3, self.hidden_dim // 3)
         self.embedding_test = nn.Embedding(self.args.n_test + 1, self.hidden_dim // 3)
         self.embedding_question = nn.Embedding(self.args.n_questions + 1, self.hidden_dim // 3)
         self.embedding_tag = nn.Embedding(self.args.n_tag + 1, self.hidden_dim // 3)
-        self.embedding_position = nn.Embedding(self.args.max_seq_len, self.hidden_dim)
+
+        if 'testPre' in CATEGORICAL:
+            self.embedding_testpre = nn.Embedding(self.args.n_testpre + 1, self.hidden_dim // 3)
+        if 'testPost' in CATEGORICAL:
+            self.embedding_testpost = nn.Embedding(self.args.n_testpost + 1, self.hidden_dim // 3)
 
         # embedding combination projection
-        self.comb_proj = nn.Linear((self.hidden_dim // 3) * 4, self.hidden_dim)
+        n_categorical = len(DEFAULT) + len(CATEGORICAL)
+        self.comb_proj = nn.Linear((self.hidden_dim // 3) * (n_categorical - 1), self.hidden_dim)
 
-        # 기존 keetar님 솔루션에서는 Positional Embedding은 사용되지 않습니다
-        # 하지만 사용 여부는 자유롭게 결정해주세요 :)
+        # 기존 솔루션에서는 Positional Embedding은 사용되지 않음
         # self.embedding_position = nn.Embedding(self.args.max_seq_len, self.hidden_dim)
 
         # Encoder
@@ -547,7 +705,7 @@ class LastQuery(nn.Module):
         self.value = nn.Linear(in_features=self.hidden_dim, out_features=self.hidden_dim)
 
         self.attn = nn.MultiheadAttention(embed_dim=self.hidden_dim, num_heads=self.args.n_heads)
-        self.mask = None  # last query에서도 필요하다.
+        self.mask = None  # last query에서도 필요함
         self.ffn = Feed_Forward_block(self.hidden_dim)
 
         self.ln1 = nn.LayerNorm(self.hidden_dim)
@@ -585,20 +743,50 @@ class LastQuery(nn.Module):
         return (h, c)
 
     def forward(self, input):
-        test, question, tag, _, mask, interaction, index = input
-        batch_size = interaction.size(0)
-        seq_len = interaction.size(1)
+        # 변경된 categorical의 순서: answerCode, assessmentItemID, testId, KnowledgeTag, (testPre, testPost), mask, interaction
+        batch_size = input[0].size(0)
+        seq_len = input[0].size(1)
 
         # embedding
-        embed_interaction = self.embedding_interaction(interaction)
-        embed_test = self.embedding_test(test)
-        embed_question = self.embedding_question(question)
-        embed_tag = self.embedding_tag(tag)
+        embed_interaction = self.embedding_interaction(input[self.cate_count])
+        embed_question = self.embedding_question(input[1])
+        embed_test = self.embedding_test(input[2])
+        embed_tag = self.embedding_tag(input[3])
 
-        embed = torch.cat([embed_interaction,
-                           embed_test,
-                           embed_question,
-                           embed_tag, ], 2)
+        if len(CATEGORICAL) == 2:  # pre, post
+            embed_testpre = self.embedding_testpre(input[4])
+            embed_testpost = self.embedding_testpost(input[5])
+            embed = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag,
+                                    embed_testpre,
+                                    embed_testpost], 2
+                                   )
+        elif len(CATEGORICAL) == 1:
+            if 'testPre' in CATEGORICAL:  # pre
+                embed_testpre = self.embedding_testpre(input[4])
+                embed = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_testpre], 2
+                                       )
+            else:  # post
+                embed_testpost = self.embedding_testpost(input[4])
+                embed = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_testpost], 2
+                                       )
+
+        else:  # none
+            embed = torch.cat([embed_interaction,
+                                    embed_test,
+                                    embed_question,
+                                    embed_tag, ], 2
+                                   )
 
         embed = self.comb_proj(embed)
 
@@ -639,6 +827,6 @@ class LastQuery(nn.Module):
 
         preds = self.activation(out).view(batch_size, -1)
 
-        # print(preds)
+        print(preds)
 
         return preds

@@ -12,13 +12,13 @@ def parse_args(mode='train'):
     parser.add_argument('--data_dir', default='/opt/ml/input/data/train_dataset', type=str, help='data directory')
     parser.add_argument('--asset_dir', default='asset/', type=str, help='data directory')
 
-    parser.add_argument('--file_name', default='train_data.csv', type=str, help='train file name')
+    parser.add_argument('--file_name', default='total_train_data.csv', type=str, help='train file name')
 
     parser.add_argument('--model_dir', default='models/', type=str, help='model directory')
     parser.add_argument('--model_name', default='model.pt', type=str, help='model file name')
 
     parser.add_argument('--output_dir', default='output/', type=str, help='output directory')
-    parser.add_argument('--test_file_name', default='test_data.csv', type=str, help='test file name')
+    parser.add_argument('--test_file_name', default='total_test_data.csv', type=str, help='test file name')
 
     parser.add_argument('--max_seq_len', default=20, type=int, help='max sequence length')
     parser.add_argument('--num_workers', default=4, type=int, help='number of workers')
@@ -47,9 +47,10 @@ def parse_args(mode='train'):
     parser.add_argument('--test_size', default=0.1, type=float, help='test_size')
     parser.add_argument('--is_cont', default=True, type=bool, help='use continuous feature')
     parser.add_argument('--cont_count', default=3, type=int, help='continuous feature count')
+    parser.add_argument('--testPre', default=True, type=bool, help='if testPre included')
 
     # Data Augmentation
-    parser.add_argument('--window', default=True, type=bool, help='window')
+    parser.add_argument('--window', default=False, type=bool, help='window')
     parser.add_argument('--stride', default=10, type=int, help='stride size')
     parser.add_argument('--shuffle', default=False, type=bool, help='shuffle')
     parser.add_argument('--shuffle_n', default=2, type=int, help='shuffle_n')
