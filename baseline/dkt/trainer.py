@@ -12,6 +12,9 @@ from .model import LSTM, LSTMATTN, Bert, Saint, LastQuery
 import wandb
 import time
 import datetime
+import gc
+
+
 
 
 # Get current learning rate
@@ -21,6 +24,82 @@ import datetime
 # for plateua schduler
 def get_lr(optimizer):
     return optimizer.param_groups[0]['lr']
+
+def fold_run(args, train_data, valid_data, fold):
+    MODEL_DIR = 'folds/'
+    os.makedirs(MODEL_DIR, exist_ok=True)
+
+    print(f'<< fold_run: {args.is_cont} >>')
+    if args.window:
+        # augmentation
+        augmented_train_data = data_augmentation(train_data, args)
+        if len(augmented_train_data) != len(train_data):
+            print(f"Data Augmentation applied. Train data {len(train_data)} -> {len(augmented_train_data)}\n")
+
+        train_loader, valid_loader = get_loaders(args, augmented_train_data, valid_data)
+    else:
+        train_loader, valid_loader = get_loaders(args, train_data, valid_data)
+
+    # only when using warmup scheduler
+    args.total_steps = int(len(train_loader.dataset) / args.batch_size) * (args.n_epochs)
+    args.warmup_steps = args.total_steps // 10
+
+    model = get_model(args)
+    optimizer = get_optimizer(model, args)
+    scheduler = get_scheduler(optimizer, args)
+
+    best_auc = -1
+    best_acc = -1
+    early_stopping_counter = 0
+    print(f"########## SKFold {fold} ##########")
+    for epoch in range(args.n_epochs):
+
+        print(f"Start Training: Epoch {epoch + 1}")
+        start = time.time()
+        ### TRAIN
+        train_auc, train_acc, train_loss = train(train_loader, model, optimizer, args)
+
+        ### VALID
+        auc, acc, _, _ = validate(valid_loader, model, args)
+
+        sec = time.time() - start
+        times = str(datetime.timedelta(seconds=sec)).split(".")
+        times = times[0]
+        print(f'<<<<<<<<<<  {epoch + 1} EPOCH spent : {times}  >>>>>>>>>>')
+
+        # model save or early stopping
+        wandb.log({"epoch": epoch, "train_loss": train_loss, "train_auc": train_auc, "train_acc": train_acc,
+                   "valid_auc": auc, "valid_acc": acc, "Learning_rate": get_lr(optimizer), })
+        if auc > best_auc:
+            best_auc = auc
+            best_acc = acc
+            # torch.nn.DataParallel로 감싸진 경우 원래의 model을 가져옵니다.
+            model_to_save = model.module if hasattr(model, 'module') else model
+            save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': model_to_save.state_dict(),
+            },
+                MODEL_DIR, f'model_cv6_{fold}.pt',
+            )
+            early_stopping_counter = 0
+        else:
+            early_stopping_counter += 1
+            if early_stopping_counter >= args.patience:
+                print(f'EarlyStopping counter: {early_stopping_counter} out of {args.patience}')
+                break
+
+        # scheduler
+        if args.scheduler == 'plateau':
+            scheduler.step(best_auc)
+        else:
+            scheduler.step()
+    # model 메모리 지우기
+    model.cpu()
+    del model
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    return best_acc, best_auc
 
 
 def run(args, train_data, valid_data):
@@ -138,7 +217,6 @@ def validate(valid_loader, model, args):
     total_targets = []
     for step, batch in enumerate(valid_loader):
         input = process_batch(batch, args)
-
         preds = model(input)
         targets = input[3]  # correct
 
