@@ -180,6 +180,8 @@ class LSTMATTN(nn.Module):
             self.embedding_testpre = nn.Embedding(self.args.n_testpre + 1, self.hidden_dim // 3)
         if 'testPost' in CATEGORICAL:
             self.embedding_testpost = nn.Embedding(self.args.n_testpost + 1, self.hidden_dim // 3)
+        if 'lag_time' in CATEGORICAL:
+            self.embedding_lagtime = nn.Embedding(self.args.n_lagtime + 1, self.hidden_dim // 3)
 
         # embedding cate projection
         n_categorical = len(DEFAULT) + len(CATEGORICAL)
@@ -245,16 +247,28 @@ class LSTMATTN(nn.Module):
         embed_question = self.embedding_question(input[1])
         embed_test = self.embedding_test(input[2])
         embed_tag = self.embedding_tag(input[3])
-        if len(CATEGORICAL) == 2: # pre, post
+        #if len(CATEGORICAL) == 2: # pre, post
+        if len(CATEGORICAL) == 3:  # pre, post, lag_time
+            # embed_testpre = self.embedding_testpre(input[4])
+            # embed_testpost = self.embedding_testpost(input[5])
+            # cate_embed = torch.cat([embed_interaction,
+            #                         embed_test,
+            #                         embed_question,
+            #                         embed_tag,
+            #                         embed_testpre,
+            #                         embed_testpost], 2
+            #                     )
             embed_testpre = self.embedding_testpre(input[4])
             embed_testpost = self.embedding_testpost(input[5])
+            embed_lagtime = self.embedding_lagtime(input[6])
             cate_embed = torch.cat([embed_interaction,
                                     embed_test,
                                     embed_question,
                                     embed_tag,
                                     embed_testpre,
-                                    embed_testpost], 2
-                                )
+                                    embed_testpost,
+                                    embed_lagtime], 2
+                                   )
         elif len(CATEGORICAL) == 1:
             if 'testPre' in CATEGORICAL: # pre
                 embed_testpre = self.embedding_testpre(input[4])
@@ -264,7 +278,8 @@ class LSTMATTN(nn.Module):
                                         embed_tag,
                                         embed_testpre], 2
                                     )
-            else: # post
+            #else: # post
+            elif 'testPost' in CATEGORICAL:  # post
                 embed_testpost = self.embedding_testpost(input[4])
                 cate_embed = torch.cat([embed_interaction,
                         embed_test,
@@ -272,6 +287,14 @@ class LSTMATTN(nn.Module):
                         embed_tag,
                         embed_testpost], 2
                     )
+            else:  # lag_time
+                embed_lagtime = self.embedding_lagtime(input[4])
+                cate_embed = torch.cat([embed_interaction,
+                                        embed_test,
+                                        embed_question,
+                                        embed_tag,
+                                        embed_lagtime], 2
+                                       )
 
         else: # none
             cate_embed = torch.cat([embed_interaction,
@@ -432,7 +455,7 @@ class Bert(nn.Module):
 
         if self.args.is_cont:
             # cont_x = torch.cat(cont, 1)
-            cont_x = torch.cat(input[-1], 1)  # 수정
+            cont_x = torch.cat(input[-1], 1)  # cont: input[-1]
             cont_bn_x = self.cont_bn(cont_x.view(-1, self.cont_count))
             # view 할 때 맨 앞을 -1로 해야함,
             # 맨 마지막 batch는 실제 batch보다 작아서 고정된 값으로 놓으면 에러남

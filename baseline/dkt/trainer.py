@@ -13,96 +13,18 @@ import wandb
 import time
 import datetime
 import gc
-
 from dkt.feature_selection import *
 
-
-# Get current learning rate
-# def get_lr(scheduler):
-#     return scheduler.get_last_lr()[0]
 
 # for plateua schduler
 def get_lr(optimizer):
     return optimizer.param_groups[0]['lr']
 
-def fold_run(args, train_data, valid_data, fold):
-    MODEL_DIR = 'folds/'
-    os.makedirs(MODEL_DIR, exist_ok=True)
-
-    print(f'<< fold_run: {args.is_cont} >>')
-    if args.window:
-        # augmentation
-        augmented_train_data = data_augmentation(train_data, args)
-        if len(augmented_train_data) != len(train_data):
-            print(f"Data Augmentation applied. Train data {len(train_data)} -> {len(augmented_train_data)}\n")
-
-        train_loader, valid_loader = get_loaders(args, augmented_train_data, valid_data)
-    else:
-        train_loader, valid_loader = get_loaders(args, train_data, valid_data)
-
-    # only when using warmup scheduler
-    args.total_steps = int(len(train_loader.dataset) / args.batch_size) * (args.n_epochs)
-    args.warmup_steps = args.total_steps // 10
-
-    model = get_model(args)
-    optimizer = get_optimizer(model, args)
-    scheduler = get_scheduler(optimizer, args)
-
-    best_auc = -1
-    best_acc = -1
-    early_stopping_counter = 0
-    print(f"########## SKFold {fold} ##########")
-    for epoch in range(args.n_epochs):
-
-        print(f"Start Training: Epoch {epoch + 1}")
-        start = time.time()
-        ### TRAIN
-        train_auc, train_acc, train_loss = train(train_loader, model, optimizer, args)
-
-        ### VALID
-        auc, acc, _, _ = validate(valid_loader, model, args)
-
-        sec = time.time() - start
-        times = str(datetime.timedelta(seconds=sec)).split(".")
-        times = times[0]
-        print(f'<<<<<<<<<<  {epoch + 1} EPOCH spent : {times}  >>>>>>>>>>')
-
-        # model save or early stopping
-        wandb.log({"epoch": epoch, "train_loss": train_loss, "train_auc": train_auc, "train_acc": train_acc,
-                   "valid_auc": auc, "valid_acc": acc, "Learning_rate": get_lr(optimizer), })
-        if auc > best_auc:
-            best_auc = auc
-            best_acc = acc
-            # torch.nn.DataParallel로 감싸진 경우 원래의 model을 가져옵니다.
-            model_to_save = model.module if hasattr(model, 'module') else model
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': model_to_save.state_dict(),
-            },
-                MODEL_DIR, f'model_cv6_{fold}.pt',
-            )
-            early_stopping_counter = 0
-        else:
-            early_stopping_counter += 1
-            if early_stopping_counter >= args.patience:
-                print(f'EarlyStopping counter: {early_stopping_counter} out of {args.patience}')
-                break
-
-        # scheduler
-        if args.scheduler == 'plateau':
-            scheduler.step(best_auc)
-        else:
-            scheduler.step()
-    # model 메모리 지우기
-    model.cpu()
-    del model
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    return best_acc, best_auc
-
 
 def run(args, train_data, valid_data):
+    torch.cuda.empty_cache()
+    gc.collect()
+
     print(f'<< run: {args.is_cont} >>')
     if args.window:
         # augmentation
@@ -150,7 +72,7 @@ def run(args, train_data, valid_data):
                 'epoch': epoch + 1,
                 'state_dict': model_to_save.state_dict(),
             },
-                args.model_dir, f'{args.model}_{epoch+1}_{int(acc*10000)}.pt',  # acc가 저장 이름에 포함되도록
+                f'{args.model_dir}/{args.run_name}', f'{args.model}_{epoch+1}_{int(acc*10000)}.pt',  # acc가 저장 이름에 포함되도록
             )
             early_stopping_counter = 0
         else:
@@ -296,25 +218,17 @@ def get_model(args):
 
 # 배치 전처리
 def process_batch(batch, args):
-    # print(f"<< process_batch : {args.is_cont} >>")
-    # 범주형 피처 컬럼 5개
     categorical_features = list(batch[-(len(DEFAULT) + len(CATEGORICAL)):])
 
     # change to float
     mask = categorical_features[-1].type(torch.FloatTensor)  # categorical 중 마지막
     correct = categorical_features[0].type(torch.FloatTensor)  # categorical 중 처음
 
-
-    # interaction: 과거 정답 여부를 다음 시퀀스에 추가적인 feature로 사용하게끔 한칸 시프트 해준 feature
-    #  interaction을 임시적으로 correct를 한칸 우측으로 이동한 것으로 사용
-    #    saint의 경우 decoder에 들어가는 input이다
-    interaction = correct + 1  # 패딩을 위해 correct값에 1을 더해준다. (정답 2, 오답 1)
+    interaction = correct + 1
     interaction = interaction.roll(shifts=1, dims=1)
     interaction_mask = mask.roll(shifts=1, dims=1)
     interaction_mask[:, 0] = 0
     interaction = (interaction * interaction_mask).to(torch.int64)  # 가장 마지막으로 푼 문제를 제외하고 정답 2, 오답 1
-    # print(interaction)
-    # exit()
 
     for i in range(1, len(categorical_features) - 1, 1):  # 0번째인 correct, 마지막인 mask는 제외
         categorical_features[i] = ((categorical_features[i] + 1) * mask).to(torch.int64)
@@ -367,7 +281,6 @@ def save_checkpoint(state, model_dir, model_filename):
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     torch.save(state, os.path.join(model_dir, model_filename))
-
 
 
 def load_model(args):

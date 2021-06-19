@@ -95,20 +95,25 @@ class Preprocess:
         self.args.n_tag = len(np.load(os.path.join(self.args.asset_dir, 'KnowledgeTag_classes.npy')))
 
         front_cols = ['userID', 'answerCode', 'assessmentItemID', 'testId', 'KnowledgeTag']
-        for item in ('testPre', 'testPost'):
+        for item in ('testPre', 'testPost', 'lag_time'):
             if item in df.columns:  # catetorical로 testPre나 testPost가 있을 경우
                 front_cols.append(item)
                 if item == 'testPre':
                     self.args.n_testpre = len(np.load(os.path.join(self.args.asset_dir, 'testPre_classes.npy')))
                 elif item == 'testPost':
                     self.args.n_testpost = len(np.load(os.path.join(self.args.asset_dir, 'testPost_classes.npy')))
+                elif item == 'lag_time':
+                    self.args.n_lagtime = len(np.load(os.path.join(self.args.asset_dir, 'lag_time_classes.npy')))
 
         # column 순서 조정 (userID, answerCode가 맨앞, catetorical이 먼저 오도록)
         columns = [_ for _ in df.columns if _ not in (front_cols)]  # categorical을 일단 제외
         columns = front_cols + columns  # categorical을 맨앞으로
+        print(f'features: {columns}')
         group = df[columns].groupby('userID').apply(
             lambda r: tuple([r[col].values for col in columns[1:]])
         )
+        if is_train:
+            return group
         return group.values
 
     def load_train_data(self, file_name):
@@ -125,16 +130,13 @@ class DKTDataset(torch.utils.data.Dataset):
         self.args = args
 
     def __getitem__(self, index):
-        # user 1명의 sequence data
         row = self.data[index]
-
-        # 각 data의 sequence length
         seq_len = len(row[0])
 
         n_cate_cols = len(DEFAULT) + len(CATEGORICAL)
-        cate_cols = [row[i] for i in range(n_cate_cols - 1)]  # 1 빼는이유: n_cate_cols는 userID도 카운트된 숫자라
+        cate_cols = [row[i] for i in range(n_cate_cols - 1)]  # n_cate_cols에서 userID 카운트 제거
 
-        # max seq len을 고려하여서 이보다 길면 자르고 아닐 경우 그대로 냅둔다
+        # max seq len을 고려하여서 이보다 길면 자름
         if seq_len > self.args.max_seq_len:
             for i, col in enumerate(cate_cols):
                 cate_cols[i] = col[-self.args.max_seq_len:]
@@ -152,7 +154,7 @@ class DKTDataset(torch.utils.data.Dataset):
 
         if self.args.is_cont:
             # 범주형 데이터 이후
-            cont_cols = list(row[n_cate_cols - 1:])  # 수정
+            cont_cols = list(row[n_cate_cols - 1:])
             if seq_len > self.args.max_seq_len:
                 for i, col in enumerate(cont_cols):
                     cont_cols[i] = col[-self.args.max_seq_len:]
@@ -171,20 +173,16 @@ class DKTDataset(torch.utils.data.Dataset):
         return len(self.data)
 
 
-from torch.nn.utils.rnn import pad_sequence
-
-
 def collate(batch):
     col_n = len(batch[0])
     col_list = [[] for _ in range(col_n)]
-    # is_cont=True이면 DKTDataset의 output을 cont+cate로 해야 그대로 mask가 맨 마지막에 위치함
-    max_seq_len = len(batch[0][-1])  # args.max_seq_len
+    max_seq_len = len(batch[0][-1])
 
     # batch의 값들을 각 column끼리 그룹화
     for row in batch:
         for i, col in enumerate(row):
             pre_padded = torch.zeros(max_seq_len)
-            pre_padded[-len(col):] = col  # 앞부분이 0으로 padding됨
+            pre_padded[-len(col):] = col  # 앞부분 0으로 padding
             col_list[i].append(pre_padded)
 
     for i, _ in enumerate(col_list):
@@ -221,7 +219,7 @@ def slidding_window(data, args):
     for row in data:
         seq_len = len(row[0])
 
-        # 만약 window 크기보다 seq len이 같거나 작으면 augmentation을 하지 않는다
+        # 만약 window 크기보다 seq len이 같거나 작으면 augmentation을 하지 않음
         if seq_len <= window_size:
             augmented_datas.append(row)
         else:
@@ -235,7 +233,7 @@ def slidding_window(data, args):
                     window_data.append(col[window_i * stride:window_i * stride + window_size])
 
                 # Shuffle
-                # 마지막 데이터의 경우 shuffle을 하지 않는다
+                # 마지막 데이터의 경우 shuffle을 하지 않음
                 if args.shuffle and window_i + 1 != total_window:
                     shuffle_datas = shuffle(window_data, window_size, args)
                     augmented_datas += shuffle_datas
@@ -256,7 +254,6 @@ def slidding_window(data, args):
 def shuffle(data, data_size, args):
     shuffle_datas = []
     for i in range(args.shuffle_n):
-        # shuffle 횟수만큼 window를 랜덤하게 계속 섞어서 데이터로 추가
         shuffle_data = []
         random_index = np.random.permutation(data_size)
         for col in data:

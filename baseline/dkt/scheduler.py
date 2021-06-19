@@ -11,4 +11,5 @@ def get_scheduler(optimizer, args):
         scheduler = get_linear_schedule_with_warmup(optimizer,
                                                     num_warmup_steps=args.warmup_steps,
                                                     num_training_steps=args.total_steps)
+
     return scheduler

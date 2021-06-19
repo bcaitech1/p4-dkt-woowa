@@ -8,7 +8,6 @@ def parse_args(mode='train'):
     parser.add_argument('--seed', default=42, type=int, help='seed')
 
     parser.add_argument('--device', default='cpu', type=str, help='cpu or gpu')
-
     parser.add_argument('--data_dir', default='/opt/ml/input/data/train_dataset', type=str, help='data directory')
     parser.add_argument('--asset_dir', default='asset/', type=str, help='data directory')
 
@@ -20,12 +19,12 @@ def parse_args(mode='train'):
     parser.add_argument('--output_dir', default='output/', type=str, help='output directory')
     parser.add_argument('--test_file_name', default='total_test_data.csv', type=str, help='test file name')
 
-    parser.add_argument('--max_seq_len', default=20, type=int, help='max sequence length')
+    parser.add_argument('--max_seq_len', default=15, type=int, help='max sequence length')
     parser.add_argument('--num_workers', default=4, type=int, help='number of workers')
 
     # 모델
-    parser.add_argument('--hidden_dim', default=64, type=int, help='hidden dimension size')
-    parser.add_argument('--n_layers', default=2, type=int, help='number of layers')
+    parser.add_argument('--hidden_dim', default=128, type=int, help='hidden dimension size')
+    parser.add_argument('--n_layers', default=1, type=int, help='number of layers')
     parser.add_argument('--n_heads', default=2, type=int, help='number of heads')
     parser.add_argument('--drop_out', default=0.2, type=float, help='drop out rate')
 
@@ -38,7 +37,7 @@ def parse_args(mode='train'):
     parser.add_argument('--log_steps', default=50, type=int, help='print log per n steps')
 
     ### 중요 ###
-    parser.add_argument('--model', default='lstm', type=str, help='model type')
+    parser.add_argument('--model', default='lstmattn', type=str, help='model type')
     parser.add_argument('--optimizer', default='adam', type=str, help='optimizer type')
     parser.add_argument('--scheduler', default='plateau', type=str, help='scheduler type')
 
@@ -46,8 +45,6 @@ def parse_args(mode='train'):
     parser.add_argument('--run_name', default='test', type=str, help='wandb run name')
     parser.add_argument('--test_size', default=0.1, type=float, help='test_size')
     parser.add_argument('--is_cont', default=True, type=bool, help='use continuous feature')
-    parser.add_argument('--cont_count', default=3, type=int, help='continuous feature count')
-    parser.add_argument('--testPre', default=True, type=bool, help='if testPre included')
 
     # Data Augmentation
     parser.add_argument('--window', default=False, type=bool, help='window')
