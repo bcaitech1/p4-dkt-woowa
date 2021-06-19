@@ -1,6 +1,6 @@
 # LSTM
 
-* Edited Files: feature_selection.py, dataloader.py, model.py, trainer.py
+* Edited Files: `feature_selection.py`, `dataloader.py`, `model.py`, `trainer.py`
 
 * How to Run
   *  `feature_selection.py` 에서 feature 선택
