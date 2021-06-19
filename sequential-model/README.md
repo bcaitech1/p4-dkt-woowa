@@ -1,2 +1,2 @@
-# dkt baseline
+# Sequential Model Pipeline
 
