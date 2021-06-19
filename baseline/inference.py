@@ -4,7 +4,6 @@ from dkt.dataloader import Preprocess
 from dkt import trainer
 import torch
 
-from prettyprinter import cpprint
 
 
 def main(args):
@@ -18,6 +17,6 @@ def main(args):
 
 if __name__ == "__main__":
     args = parse_args(mode='train')
-    cpprint(args)
+    print(args)
     os.makedirs(args.model_dir, exist_ok=True)
     main(args)
