@@ -4,7 +4,6 @@
 
 ![Image from iOS](https://user-images.githubusercontent.com/37537248/122682759-4c978f00-d236-11eb-84b6-2c5f37ee9413.gif)
 
-📆 2021.05.24 ~ 2021.06.16
 </p>
 
 <p align="center">
@@ -12,6 +11,7 @@
     <img src="https://img.shields.io/badge/pytorch-v1.9-blue?logo=pytorch" />
     <img src="https://img.shields.io/badge/pandas-v1.2.4-blue?logo=pandas" />
   </p>
+  <p>📆 2021.05.24 ~ 2021.06.16</p>
   <span style="font-weight:600">안녕하세요, DKT마저 우아하게. 우아한 캠퍼들입니다.</span>
 </p>
 
@@ -150,4 +150,4 @@ Iscream 프로그램을 이용하는 학생들의 문제 풀이 이력 시퀀스
   | [@1gyeol-KIM](https://github.com/1gyeol-KIM) | [@jiwon-ryu](https://github.com/jiwon-ryu) | [@staycozyboy](https://github.com/staycozyboy) | [@dhh0](https://github.com/dhh0) |
 
 ## 🌟 Show your support
-다들 네트워킹 데이에서 봬요💖
+다들 네트워킹 데이 때 봬요💖
